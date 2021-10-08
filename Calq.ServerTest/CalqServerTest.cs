@@ -8,36 +8,80 @@ using System.Threading;
 using Xunit;
 
 namespace Calq.ServerTest {
-    public class CalqServerTest {
 
-        private HttpClient client = new();
-        private TestService root = new();
+    public abstract class CalqServerTestBase {
 
-        public CalqServerTest() {
-            var url = "http://localhost:8080/";
+        protected HttpClient client = new();
+        protected TestService root = new();
+
+        protected CalqServerTestBase() {
+            var url = "";
 
             var server = new CalqServer(root);
-            server.Prefixes = new [] { url };
-            new Thread(() => server.Start()).Start();
+            new Thread(() => {
+                var port = 8080;
+                while (server.Listener.IsListening == false) {
+                    try {
+                        url = $"http://localhost:{port}/";
+                        server.Prefixes = new[] { url };
+                        server.Start();
+                    } catch (HttpListenerException) {
+                        ++port;
+                        server = new CalqServer(root);
+                    }
+                }
+            }).Start();
 
+            while (server.Listener.IsListening == false) {
+                Thread.Sleep(1);
+            }
             client.BaseAddress = new Uri(url);
         }
 
-        private (string, HttpStatusCode) Send(HttpMethod method, string uri) {
+        protected (string, HttpStatusCode) Send(HttpMethod method, string uri, string body = "") {
             var request = new HttpRequestMessage(method, uri);
+            request.Content = new StringContent(body);
             var response = client.Send(request);
             return (new StreamReader(response.Content.ReadAsStream()).ReadToEnd(), response.StatusCode);
         }
 
-        private (string body, HttpStatusCode status) Get(string uri) {
+        protected (string body, HttpStatusCode status) Get(string uri) {
             return Send(HttpMethod.Get, uri);
         }
 
-        private string Serialize(object instance) {
+        protected (string body, HttpStatusCode status) Post(string uri, string body) {
+            return Send(HttpMethod.Post, uri, body);
+        }
+
+        protected (string body, HttpStatusCode status) Put(string uri, string body) {
+            return Send(HttpMethod.Put, uri, body);
+        }
+
+        protected (string body, HttpStatusCode status) Delete(string uri) {
+            return Send(HttpMethod.Delete, uri);
+        }
+
+        protected (string body, HttpStatusCode status) Patch(string uri, string body) {
+            return Send(HttpMethod.Patch, uri, body);
+        }
+
+        protected string Serialize(object instance) {
             var serializerOptions = new JsonSerializerOptions {
                 IncludeFields = true
             };
             return JsonSerializer.Serialize(instance, serializerOptions);
+        }
+    }
+
+    [Collection("Sequential")]
+    public class CalqServerRootTest : CalqServerTestBase {
+
+        [Fact]
+        public void Test0() {
+            Assert.NotNull(root.nested);
+            Assert.Null(root.nullNested);
+            Assert.Equal(0, root.integer);
+            Assert.NotEqual(root.list[0], root.list[1]);
         }
 
         [Fact]
@@ -57,6 +101,10 @@ namespace Calq.ServerTest {
             var result = Get(client.BaseAddress + "/");
             Assert.Equal(Serialize(new TestService()), result.body);
         }
+    }
+
+    [Collection("Sequential")]
+    public class CalqServerTest : CalqServerTestBase {
 
         [Fact]
         public void Test4() {
@@ -72,14 +120,12 @@ namespace Calq.ServerTest {
 
         [Fact]
         public void Test6() {
-            Assert.Null(root.nullText);
             var result = Get("nullText");
             Assert.Equal(Serialize(root.nullText), result.body);
         }
 
         [Fact]
         public void Test7() {
-            Assert.NotNull(root.nested);
             var result = Get("nested");
             Assert.Equal(Serialize(root.nested), result.body);
         }
@@ -92,7 +138,6 @@ namespace Calq.ServerTest {
 
         [Fact]
         public void Test9() {
-            Assert.Null(root.nullNested);
             var result = Get("nullNested/a");
             Assert.Equal(HttpStatusCode.NotFound, result.status);
         }
@@ -137,6 +182,72 @@ namespace Calq.ServerTest {
         public void Test16() {
             var result = Get("dictionary/1");
             Assert.Equal(Serialize(root.dictionary[1]), result.body);
+        }
+
+        [Fact]
+        public void Test17() {
+            var newNested = new TestService.Nested();
+            var result = Post("nullNested", Serialize(newNested));
+            Assert.Equal(Serialize(newNested), Serialize(root.nullNested));
+        }
+
+        [Fact]
+        public void Test18() {
+            var size = root.list.Count;
+
+            var result = Post("list", Serialize(5));
+            Assert.Equal(size + 1, root.list.Count);
+            Assert.Equal(Serialize(5), Serialize(root.list[^1]));
+        }
+
+        [Fact]
+        public void Test19() {
+            var newNested = new TestService.Nested();
+            var result = Post("nested", Serialize(newNested));
+            Assert.Equal(HttpStatusCode.NotFound, result.status); // FIXME 409
+        }
+
+        [Fact]
+        public void Test20() {
+            var result = Post("integer", Serialize(5));
+            Assert.Equal(HttpStatusCode.NotFound, result.status); // FIXME 409
+        }
+
+        [Fact]
+        public void Test21() {
+            var result = Put("integer", Serialize(5));
+            Assert.Equal(5, root.integer);
+        }
+
+        [Fact]
+        public void Test22() {
+            var secondValue = root.list[1];
+            var size = root.list.Count;
+
+            var result = Delete("list/0");
+            Assert.Equal(size - 1, root.list.Count);
+            Assert.Equal(Serialize(secondValue), Serialize(root.list[0]));
+        }
+
+        [Fact]
+        public void Test23() {
+            var result = Delete("nested");
+            Assert.Null(root.nested);
+        }
+
+        [Fact]
+        public void Test24() {
+            var newNested = new TestService.Nested();
+            var result = Patch("nullNested", Serialize(newNested));
+            Assert.Equal(HttpStatusCode.NotFound, result.status); // FIXME wrong status
+        }
+
+        [Fact]
+        public void Test25() {
+            var newNested = new TestService.Nested();
+            newNested.b = 5;
+            var result = Patch("nested", $"{{ \"b\": {newNested.b} }}");
+            Assert.Equal(Serialize(newNested), Serialize(root.nested));
         }
     }
 }
