@@ -3,7 +3,7 @@
 using System.Collections.Generic;
 
 namespace Calq.ServerTest {
-    class TestService {
+    public class TestService {
         public class Nested {
             public int a = 1;
             public int b;
