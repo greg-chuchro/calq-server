@@ -59,6 +59,11 @@ namespace Calq.Server {
             throw new MissingMemberException();
         }
 
+        public static void SetFieldOrPropertyValue(object obj, string fieldOrPropertyName, object? value) {
+            var type = obj.GetType();
+            SetFieldOrPropertyValue(type, obj, fieldOrPropertyName, value);
+        }
+
         public static void SetFieldOrPropertyValue(Type type, object obj, string fieldOrPropertyName, object? value) {
             var field = type.GetField(fieldOrPropertyName);
             if (field != null) {
@@ -73,7 +78,36 @@ namespace Calq.Server {
             }
         }
 
-        private static object ParseValue(Type type, string value) {
+        public static Type GetFieldOrPropertyType(object obj, string fieldOrPropertyName) {
+            var type = obj.GetType();
+            var field = type.GetField(fieldOrPropertyName);
+            if (field != null) {
+                return field.FieldType;
+            } else {
+                var property = type.GetProperty(fieldOrPropertyName);
+                if (property != null) {
+                    return property.PropertyType;
+                }
+            }
+            throw new MissingMemberException();
+        }
+
+        public static bool IsPrimitive(ICollection collection) {
+            return IsPrimitive(collection.GetType().GetGenericArguments()[0]);
+        }
+
+        public static bool IsPrimitive(object obj, string fieldOrPropertyName) {
+            return IsPrimitive(GetFieldOrPropertyType(obj, fieldOrPropertyName));
+        }
+
+        public static bool IsPrimitive(Type type) {
+            if (type.IsPrimitive || type == typeof(Decimal) || type == typeof(String)) {
+                return true;
+            }
+            return false;
+        }
+
+        public static object ParseValue(Type type, string value) {
             object objValue;
             try {
                 objValue = Type.GetTypeCode(type) switch {
@@ -148,8 +182,47 @@ namespace Calq.Server {
                 Array array => array.GetValue(int.Parse(key)),
                 IList list => list[int.Parse(key)],
                 IDictionary dictionary => dictionary[ParseValue(dictionary.GetType().GetGenericArguments()[0], key)],
-                _ => throw new Exception("unknown collection")
+                _ => throw new Exception("unsupported collection")
             };
+        }
+
+        public static void SetChildValue(ICollection collection, string key, object? value) {
+            switch (collection) {
+                case Array array:
+                    array.SetValue(value, int.Parse(key));
+                    break;
+                case IList list:
+                    list[int.Parse(key)] = value;
+                    break;
+                case IDictionary dictionary:
+                    dictionary[ParseValue(dictionary.GetType().GetGenericArguments()[0], key)] = value;
+                    break;
+                default:
+                    throw new Exception("unsupported collection");
+            }
+        }
+
+        public static void AddChildValue(ICollection collection, object? value) {
+            switch (collection) {
+                case IList list:
+                    list.Add(value);
+                    break;
+                default:
+                    throw new Exception("unsupported collection");
+            }
+        }
+
+        public static void DeleteChildValue(ICollection collection, string key) {
+            switch (collection) {
+                case IList list:
+                    list.RemoveAt(int.Parse(key));
+                    break;
+                case IDictionary dictionary:
+                    dictionary.Remove(key);
+                    break;
+                default:
+                    throw new Exception("unsupported collection");
+            }
         }
     }
 }
