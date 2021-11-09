@@ -1,4 +1,4 @@
-using Calq.Server;
+using Ghbvft6.Calq.Server;
 using System;
 using System.IO;
 using System.Net;
@@ -7,7 +7,7 @@ using System.Text.Json;
 using System.Threading;
 using Xunit;
 
-namespace Calq.ServerTest {
+namespace Ghbvft6.Calq.ServerTest {
 
     public abstract class CalqServerTestBase {
 

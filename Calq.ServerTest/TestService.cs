@@ -2,7 +2,7 @@
 
 using System.Collections.Generic;
 
-namespace Calq.ServerTest {
+namespace Ghbvft6.Calq.ServerTest {
     public class TestService {
         public class Nested {
             public int a = 1;
