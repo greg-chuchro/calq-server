@@ -6,7 +6,7 @@ using System.Net;
 using System.Text;
 using System.Text.Json;
 
-namespace Calq.Server {
+namespace Ghbvft6.Calq.Server {
     public class CalqServer {
 
         internal class MessagingException : Exception { }
