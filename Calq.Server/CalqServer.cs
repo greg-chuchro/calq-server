@@ -1,15 +1,22 @@
 ﻿using System;
 using System.Collections;
 using System.Collections.Generic;
+using System.Diagnostics;
 using System.IO;
+using System.IO.Pipes;
 using System.Net;
 using System.Text;
 using System.Text.Json;
+using System.Threading;
+using System.Threading.Tasks;
 
 namespace Ghbvft6.Calq.Server {
     public class CalqServer {
 
         internal class MessagingException : Exception { }
+
+        private static List<CalqServer> servers = new();
+        private static readonly object serversLocker = new();
 
         public string[] Prefixes { get; set; }
         public HttpListener Listener { get; } = new();
@@ -23,9 +30,52 @@ namespace Ghbvft6.Calq.Server {
             CommentHandling = JsonCommentHandling.Skip
         };
 
+        static CalqServer() {
+            Task.Run(() => {
+                while (servers.Count == 0 || servers[0].Listener.IsListening == false) {
+                    Thread.Sleep(1);
+                }
+
+                var process = Process.GetCurrentProcess();
+                var server = new NamedPipeServerStream($"{Environment.CurrentDirectory}/{process.ProcessName}-{process.Id}-calq", PipeDirection.InOut);
+                server.WaitForConnection();
+
+                var reader = new StreamReader(server);
+                var writer = new StreamWriter(server);
+                while (true) {
+                    var request = reader.ReadLine()!;
+                    var serverIndex = int.Parse(request.Split('/')[0]);
+                    var command = request.Split('/')[1];
+
+                    var response = "";
+                    switch (command) {
+                        case "exit":
+                            // FIXME
+                            Environment.Exit(0);
+                            break;
+                        case "rootType":
+                            response = servers[serverIndex].root.GetType().FullName;
+                            break;
+                        case "prefix":
+                            response = servers[serverIndex].Prefixes[0];
+                            break;
+                    }
+
+                    writer.WriteLine(response);
+                    writer.Flush();
+                }
+            });
+        }
+
         public CalqServer(object root) {
             this.root = root;
             Prefixes = Array.Empty<string>();
+        }
+
+        ~CalqServer() {
+            lock (serversLocker) {
+                servers.Remove(this);
+            }
         }
 
         public void Start() {
@@ -234,6 +284,9 @@ namespace Ghbvft6.Calq.Server {
                 Listener.Prefixes.Add(prefix);
             }
             Listener.Start();
+            lock (serversLocker) {
+                servers.Add(this);
+            }
 
             while (Listener.IsListening) {
                 var result = Listener.BeginGetContext(new AsyncCallback(ListenerCallback), Listener);
