@@ -1,6 +1,8 @@
 using Calq.Server;
 using System;
+using System.Diagnostics;
 using System.IO;
+using System.IO.Pipes;
 using System.Net;
 using System.Net.Http;
 using System.Text.Json;
@@ -14,28 +16,49 @@ namespace Calq.ServerTest {
         protected HttpClient client = new();
         protected TestService root = new();
 
+        protected static int serverCount = 0;
+        protected static readonly object serverCountLocker = new();
+        protected readonly static NamedPipeClientStream pipeClient;
+
+        protected int serverIndex;
+
+        static CalqServerTestBase() {
+            var process = Process.GetCurrentProcess();
+            pipeClient = new NamedPipeClientStream($"{Environment.CurrentDirectory}/{process.ProcessName}-{process.Id}-calq");
+        }
+
         protected CalqServerTestBase() {
-            var url = "";
+            lock (serverCountLocker) {
+                serverIndex = serverCount;
 
-            var server = new CalqServer(root);
-            new Thread(() => {
-                var port = 8080;
-                while (server.Listener.IsListening == false) {
-                    try {
-                        url = $"http://localhost:{port}/";
-                        server.Prefixes = new[] { url };
-                        server.Start();
-                    } catch (HttpListenerException) {
-                        ++port;
-                        server = new CalqServer(root);
+                var url = "";
+
+                var server = new CalqServer(root);
+                new Thread(() => {
+                    var port = 8080;
+                    while (server.Listener.IsListening == false) {
+                        try {
+                            url = $"http://localhost:{port}/";
+                            server.Prefixes = new[] { url };
+                            server.Start();
+                        } catch (HttpListenerException) {
+                            ++port;
+                            server = new CalqServer(root);
+                        }
                     }
-                }
-            }).Start();
+                }).Start();
 
-            while (server.Listener.IsListening == false) {
-                Thread.Sleep(1);
+                while (server.Listener.IsListening == false) {
+                    Thread.Sleep(1);
+                }
+                client.BaseAddress = new Uri(url);
+
+                ++serverCount;
+
+                if (serverCount == 1) {
+                    pipeClient.Connect();
+                }
             }
-            client.BaseAddress = new Uri(url);
         }
 
         protected (string, HttpStatusCode) Send(HttpMethod method, string uri, string body = "") {
@@ -248,6 +271,24 @@ namespace Calq.ServerTest {
             newNested.b = 5;
             var result = Patch("nested", $"{{ \"b\": {newNested.b} }}");
             Assert.Equal(Serialize(newNested), Serialize(root.nested));
+        }
+
+        [Fact]
+        public void Test26() {
+            var reader = new StreamReader(pipeClient);
+            var writer = new StreamWriter(pipeClient);
+            writer.WriteLine($"{serverIndex}/rootType");
+            writer.Flush();
+            Assert.Equal(root.GetType().FullName, reader.ReadLine());
+        }
+
+        [Fact]
+        public void Test27() {
+            var reader = new StreamReader(pipeClient);
+            var writer = new StreamWriter(pipeClient);
+            writer.WriteLine($"{serverIndex}/prefix");
+            writer.Flush();
+            Assert.Equal(client.BaseAddress.AbsoluteUri, reader.ReadLine());
         }
     }
 }
