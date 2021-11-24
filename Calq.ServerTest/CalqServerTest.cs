@@ -290,5 +290,13 @@ namespace Ghbvft6.Calq.ServerTest {
             writer.Flush();
             Assert.Equal(client.BaseAddress.AbsoluteUri, reader.ReadLine());
         }
+
+        [Fact]
+        public void Test28() {
+            var newFirstValue = new TestService.Nested();
+            newFirstValue.b = root.listOfObjects[0].b + 1;
+            var result = Patch("listOfObjects/0", Serialize(newFirstValue));
+            Assert.Equal(Serialize(newFirstValue), Serialize(root.listOfObjects[0]));
+        }
     }
 }
